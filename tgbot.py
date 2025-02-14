@@ -53,6 +53,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if update.message:
         logger.info("Raw message data: %s", update.message.to_dict())
 
+    # 检查是否是机器人自己的消息，如果是则直接返回
+    if update.message.from_user.is_bot:
+        logger.info("忽略机器人自己的消息")
+        return
+
     if not update.message or not update.message.text:
         logger.info("消息为空或不是文本消息")
         return
@@ -83,17 +88,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         question = update.message.text
         logger.info("私聊消息，将回复")
 
-    # 群聊检查@
+    # 群聊检查@，优化检测逻辑
     elif update.message.chat.type in ['group', 'supergroup']:
-        if f"@{bot_username}" in update.message.text:
+        # 检查消息开头是否@机器人
+        if update.message.text.startswith(f"@{bot_username}"):
             should_reply = True
-            question = update.message.text.replace(f"@{bot_username}", "").strip()
+            # 只去除开头的@mention
+            question = update.message.text[len(f"@{bot_username}"):].strip()
             logger.info(f"群聊@消息，将回复问题: {question}")
+        # 检查实体中是否有@机器人，且@在消息开头
         elif update.message.entities:
             for entity in update.message.entities:
-                if entity.type == "mention":
+                if (entity.type == "mention" and
+                    entity.offset == 0 and
+                    update.message.text[entity.offset:entity.offset+entity.length] == f"@{bot_username}"):
                     should_reply = True
-                    question = update.message.text
+                    question = update.message.text[entity.length:].strip()
                     logger.info(f"检测到mention实体，将回复问题: {question}")
                     break
 
@@ -118,11 +128,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 else:
                     await update.message.reply_photo(photo=answer)
             else:
-                # 不使用 Markdown 模式发送消息
-                await update.message.reply_text(
-                    text=answer
-                    # 移除 parse_mode=ParseMode.MARKDOWN
-                )
+                await update.message.reply_text(text=answer)
 
             logger.info("回复发送成功")
 
