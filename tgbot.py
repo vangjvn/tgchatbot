@@ -118,9 +118,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 else:
                     await update.message.reply_photo(photo=answer)
             else:
+                # 不使用 Markdown 模式发送消息
                 await update.message.reply_text(
-                    text=answer,
-                    parse_mode=ParseMode.MARKDOWN
+                    text=answer
+                    # 移除 parse_mode=ParseMode.MARKDOWN
                 )
 
             logger.info("回复发送成功")
