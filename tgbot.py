@@ -9,7 +9,7 @@ from config import settings
 # 配置更详细的日志
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.info  # 改为 DEBUG 级别
+    level=logging.INFO  # 改为 DEBUG 级别
 )
 logger = logging.getLogger(__name__)
 
