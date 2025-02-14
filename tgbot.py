@@ -5,12 +5,17 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from config import settings
-# 配置日志
+
+# 配置更详细的日志
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    level=logging.DEBUG  # 改为 DEBUG 级别
 )
 logger = logging.getLogger(__name__)
+
+# 添加 telegram 相关的日志
+logging.getLogger('telegram').setLevel(logging.DEBUG)
+logging.getLogger('httpx').setLevel(logging.DEBUG)
 
 # AI聊天配置
 AI_CHAT_URL = "http://13.212.37.80:5087/api/v1/chat/xbt_agent_chat"
@@ -28,8 +33,11 @@ async def send_ai_request(user_id: str, user_name: str, question: str) -> Dict[A
         }
 
         try:
+            logger.info(f"发送AI请求: {payload}")
             async with session.post(AI_CHAT_URL, json=payload) as response:
-                return await response.json()
+                result = await response.json()
+                logger.info(f"AI响应: {result}")
+                return result
         except Exception as e:
             logger.error(f"AI请求错误: {str(e)}")
             return {"answer": f"抱歉，服务出现错误: {str(e)}"}
@@ -39,37 +47,69 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """
     处理用户消息
     """
+    # 首先记录收到的所有信息
+    logger.debug("收到更新对象：%s", update)
+
+    if update.message:
+        logger.info("Raw message data: %s", update.message.to_dict())
+
     if not update.message or not update.message.text:
+        logger.info("消息为空或不是文本消息")
         return
 
-    # 添加日志，查看接收到的消息
+    # 记录基本信息
     logger.info(f"收到消息: {update.message.text}")
     logger.info(f"来自用户: {update.message.from_user.first_name} ({update.message.from_user.id})")
-    logger.info(f"在群组: {update.message.chat.title} ({update.message.chat.id})")
+    logger.info(f"聊天类型: {update.message.chat.type}")
+    logger.info(f"聊天ID: {update.message.chat.id}")
+    if update.message.chat.title:
+        logger.info(f"群组标题: {update.message.chat.title}")
 
     user_id = str(update.message.from_user.id)
     user_name = update.message.from_user.first_name
-
-    # 检查是否是@机器人的消息
     bot_username = context.bot.username
+
     logger.info(f"Bot username: {bot_username}")
-    logger.info(f"update.message.text:{update.message.text}")
-    logger.info(f"update.message.entities:{update.message.entities}")
-    # 修改检测逻辑
-    if update.message.text.startswith(f"@{bot_username}") or update.message.entities and any(
-            entity.type == "mention" for entity in update.message.entities
-    ):
-        # 移除@部分，获取实际问题
-        question = update.message.text.replace(f"@{bot_username}", "").strip()
-        logger.info(f"处理问题: {question}")
+    logger.info(f"消息文本: {update.message.text}")
+    logger.info(f"消息实体: {update.message.entities}")
 
-        thinking_message = await update.message.reply_text("🤔 正在思考...")
+    # 检查是否需要回复
+    should_reply = False
+    question = ""
 
+    # 私聊直接回复
+    if update.message.chat.type == 'private':
+        should_reply = True
+        question = update.message.text
+        logger.info("私聊消息，将回复")
+
+    # 群聊检查@
+    elif update.message.chat.type in ['group', 'supergroup']:
+        if f"@{bot_username}" in update.message.text:
+            should_reply = True
+            question = update.message.text.replace(f"@{bot_username}", "").strip()
+            logger.info(f"群聊@消息，将回复问题: {question}")
+        elif update.message.entities:
+            for entity in update.message.entities:
+                if entity.type == "mention":
+                    should_reply = True
+                    question = update.message.text
+                    logger.info(f"检测到mention实体，将回复问题: {question}")
+                    break
+
+    if should_reply:
         try:
-            response = await send_ai_request(user_id, user_name, question)
-            answer = response.get('answer', '抱歉，我没有得到答案')
-            logger.info(f"AI回答: {answer}")
+            # 发送"正在思考"消息
+            thinking_message = await update.message.reply_text("🤔 正在思考...")
 
+            # 调用 AI 服务
+            logger.info(f"准备调用AI服务: user_id={user_id}, user_name={user_name}, question={question}")
+            response = await send_ai_request(user_id, user_name, question)
+            logger.info(f"AI服务返回: {response}")
+
+            answer = response.get('answer', '抱歉，我没有得到答案')
+
+            # 判断回复类型并发送
             if response.get('msg_type') == 'image':
                 if "|||||" in answer:
                     urls = answer.split("|||||")
@@ -82,6 +122,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     text=answer,
                     parse_mode=ParseMode.MARKDOWN
                 )
+
+            logger.info("回复发送成功")
+
         except Exception as e:
             logger.error(f"处理消息时发生错误: {str(e)}")
             await update.message.reply_text(f"抱歉，发生错误: {str(e)}")
@@ -96,9 +139,9 @@ def main() -> None:
     # 创建应用
     application = Application.builder().token(settings.TG_BOT_TOKEN).build()
 
-    # 注册消息处理器
+    # 注册消息处理器 - 修改过滤条件
     application.add_handler(MessageHandler(
-        filters.TEXT & ~filters.COMMAND,
+        filters.ALL,  # 改为接收所有消息
         handle_message
     ))
 
@@ -115,7 +158,8 @@ def main() -> None:
     application.run_polling(
         allowed_updates=Update.ALL_TYPES,
         drop_pending_updates=True,
-        poll_interval=1.0
+        poll_interval=1.0,
+        timeout=30
     )
 
 
