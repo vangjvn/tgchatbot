@@ -42,28 +42,33 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if not update.message or not update.message.text:
         return
 
-    # 基本日志记录
+    # 添加日志，查看接收到的消息
     logger.info(f"收到消息: {update.message.text}")
     logger.info(f"来自用户: {update.message.from_user.first_name} ({update.message.from_user.id})")
-    logger.info(
-        f"在群组: {update.message.chat.title if update.message.chat.type != 'private' else 'None'} ({update.message.chat.id})")
-    logger.info(f"Bot username: {context.bot.username}")
+    logger.info(f"在群组: {update.message.chat.title} ({update.message.chat.id})")
 
     user_id = str(update.message.from_user.id)
     user_name = update.message.from_user.first_name
 
     # 检查是否是@机器人的消息
     bot_username = context.bot.username
-    if f"@{bot_username}" in update.message.text:
+    logger.info(f"Bot username: {bot_username}")
+    logger.info(f"update.message.text:{update.message.text}")
+    logger.info(f"update.message.entities:{update.message.entities}")
+    # 修改检测逻辑
+    if update.message.text.startswith(f"@{bot_username}") or update.message.entities and any(
+            entity.type == "mention" for entity in update.message.entities
+    ):
+        # 移除@部分，获取实际问题
         question = update.message.text.replace(f"@{bot_username}", "").strip()
-        logger.info(f"准备回答问题: {question}")
+        logger.info(f"处理问题: {question}")
 
         thinking_message = await update.message.reply_text("🤔 正在思考...")
 
         try:
             response = await send_ai_request(user_id, user_name, question)
-            logger.info(f"AI响应: {response}")
             answer = response.get('answer', '抱歉，我没有得到答案')
+            logger.info(f"AI回答: {answer}")
 
             if response.get('msg_type') == 'image':
                 if "|||||" in answer:
@@ -105,7 +110,13 @@ def main() -> None:
 
     # 启动机器人
     logger.info("机器人正在启动...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    logger.info("等待消息中...")
+
+    application.run_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+        poll_interval=1.0
+    )
 
 
 if __name__ == '__main__':
