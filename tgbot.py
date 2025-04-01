@@ -18,7 +18,7 @@ logging.getLogger('telegram').setLevel(logging.DEBUG)
 logging.getLogger('httpx').setLevel(logging.DEBUG)
 
 # AI聊天配置
-AI_CHAT_URL = "http://13.212.37.80:5087/api/v1/chat/xbt_agent_chat"
+AI_CHAT_URL = settings.AI_CHAT_URL
 
 
 async def send_ai_request(user_id: str, user_name: str, question: str) -> Dict[Any, Any]:
@@ -109,15 +109,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if should_reply:
         try:
-            # 发送"正在思考"消息
-            thinking_message = await update.message.reply_text("🤔 正在思考...")
+            # 发送"正在思考"消息的英文版
+            thinking_message = await update.message.reply_text("🤔 Thinking...")
 
             # 调用 AI 服务
             logger.info(f"准备调用AI服务: user_id={user_id}, user_name={user_name}, question={question}")
             response = await send_ai_request(user_id, user_name, question)
             logger.info(f"AI服务返回: {response}")
 
-            answer = response.get('answer', '抱歉，我没有得到答案')
+            # 输出英文的抱歉，我没有得到答案
+            answer = response.get('answer', 'Sorry, I did not get an answer.')
 
             # 判断回复类型并发送
             if response.get('msg_type') == 'image':
